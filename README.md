@@ -1,3 +1,3 @@
 # pattern
 TFT_LCD
-https://jianjhih.github.io/pattern/LineOD_test.html
+[RGB個別漸層](https://jianjhih.github.io/pattern/LineOD_test.html)
