@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>RGB 漸層分析儀 - 布局優化版</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; font-family: 'Segoe UI', 'Consolas', '微軟正黑體', sans-serif;
+        }
+        
+        #bgCanvas {
+            width: 100vw; height: 100vh; display: block;
+            cursor: crosshair;
+        }
+
+        /* 介面框：優化寬度與布局 */
+        #panel {
+            position: absolute;
+            min-width: 320px; /* 增加最小寬度防止錯位 */
+            background: rgba(255, 255, 255, 0.95);
+            padding: 18px 22px;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+            z-index: 100;
+            border: 1px solid #ccc;
+            user-select: none;
+            /* 讓 top 的變換更平滑 */
+            transition: transform 0.3s ease, opacity 0.3s ease, top 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* 位置定義 */
+        .pos-top { top: 20px; left: 20px; }
+        .pos-bottom { top: calc(100vh - 270px); left: 20px; }
+
+        .hidden {
+            transform: translateX(-120%);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* 設定列：使用 flex 確保不換行 */
+        .row { 
+            display: flex; 
+            align-items: center; 
+            margin-bottom: 12px; 
+            gap: 10px;
+            white-space: nowrap; 
+        }
+        
+        .row label { 
+            width: 20px; 
+            font-weight: bold; 
+            font-size: 16px;
+        }
+
+        .row input { 
+            width: 55px; 
+            padding: 5px; 
+            border: 1px solid #bbb; 
+            border-radius: 4px; 
+            text-align: center;
+            font-family: 'Consolas', monospace;
+        }
+
+        select { 
+            flex-grow: 1; 
+            padding: 5px; 
+            border-radius: 4px; 
+            border: 1px solid #bbb;
+            background: white;
+            min-width: 100px;
+        }
+
+        /* 數據顯示區 */
+        .monitor-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+            font-size: 14px;
+        }
+
+        .display-line { 
+            display: flex; 
+            gap: 15px; 
+            margin-bottom: 8px; 
+            align-items: center;
+        }
+
+        .val-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .val-box {
+            background: #f0f0f0; 
+            padding: 3px 8px; 
+            border-radius: 4px;
+            border: 1px solid #ccc; 
+            min-width: 40px; 
+            text-align: center; 
+            font-weight: bold;
+            font-family: 'Consolas', monospace;
+            display: inline-block;
+        }
+
+        .hint { 
+            font-size: 11px; 
+            color: #777; 
+            margin-top: 8px; 
+            text-align: center; 
+            line-height: 1.5;
+            background: #f9f9f9;
+            padding: 5px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="bgCanvas"></canvas>
+
+    <div id="panel" class="pos-top">
+        <div class="row">
+            <label style="color:#d32f2f">R</label>
+            <input type="number" id="rS" value="0" min="0" max="255">
+            <input type="number" id="rE" value="255" min="0" max="255">
+            <select id="rDir">
+                <option value="h">水平</option>
+                <option value="v">垂直</option>
+                <option value="d">左上到右下</option>
+            </select>
+        </div>
+        <div class="row">
+            <label style="color:#388e3c">G</label>
+            <input type="number" id="gS" value="0" min="0" max="255">
+            <input type="number" id="gE" value="255" min="0" max="255">
+            <select id="gDir">
+                <option value="h">水平</option>
+                <option value="v">垂直</option>
+                <option value="d">左上到右下</option>
+            </select>
+        </div>
+        <div class="row">
+            <label style="color:#1976d2">B</label>
+            <input type="number" id="bS" value="0" min="0" max="255">
+            <input type="number" id="bE" value="255" min="0" max="255">
+            <select id="bDir">
+                <option value="h" selected>水平</option>
+                <option value="v">垂直</option>
+                <option value="d">左上到右下</option>
+            </select>
+        </div>
+
+        <div class="monitor-section">
+            <div class="display-line">
+                <div class="val-group">X <span id="mX" class="val-box">0</span></div>
+                <div class="val-group">Y <span id="mY" class="val-box">0</span></div>
+            </div>
+            <div class="display-line">
+                <div class="val-group">R <span id="mR" class="val-box">0</span></div>
+                <div class="val-group">G <span id="mG" class="val-box">0</span></div>
+                <div class="val-group">B <span id="mB" class="val-box">0</span></div>
+            </div>
+        </div>
+
+        <div class="hint">
+            左鍵點擊背景: 隱藏/顯示<br>
+            按住左鍵並靠近: 介面自動換位
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('bgCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const panel = document.getElementById('panel');
+        
+        let isVisible = true;
+        let isDragging = false;
+        let posMode = 'top'; // 'top' or 'bottom'
+
+        const getVal = (id) => document.getElementById(id).value;
+
+        // 點擊背景切換顯示
+        window.addEventListener('mousedown', (e) => {
+            if (panel.contains(e.target)) return;
+            isDragging = true;
+            isVisible = !isVisible;
+            panel.classList.toggle('hidden', !isVisible);
+        });
+
+        window.addEventListener('mouseup', () => { isDragging = false; });
+
+        window.addEventListener('mousemove', (e) => {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            const mx = e.clientX;
+            const my = e.clientY;
+
+            // 更新數據
+            updateMonitor(mx, my, w, h);
+
+            // 智能避讓：顯示狀態且按住左鍵時觸發
+            if (isVisible && isDragging) {
+                const rect = panel.getBoundingClientRect();
+                const threshold = 40; // 觸發距離
+                
+                const inside = (
+                    mx > rect.left - threshold && mx < rect.right + threshold &&
+                    my > rect.top - threshold && my < rect.bottom + threshold
+                );
+
+                if (inside) {
+                    if (posMode === 'top') {
+                        panel.className = 'pos-bottom';
+                        posMode = 'bottom';
+                    } else {
+                        panel.className = 'pos-top';
+                        posMode = 'top';
+                    }
+                }
+            }
+        });
+
+        function updateMonitor(x, y, w, h) {
+            document.getElementById('mX').innerText = x;
+            document.getElementById('mY').innerText = y;
+            
+            ['r', 'g', 'b'].forEach(ch => {
+                const s = +getVal(ch + 'S'), e = +getVal(ch + 'E'), dir = getVal(ch + 'Dir');
+                let ratio = (dir === 'h') ? x/w : (dir === 'v' ? y/h : (x/w + y/h)/2);
+                const val = Math.floor(s + (e - s) * ratio);
+                document.getElementById('m' + ch.toUpperCase()).innerText = Math.max(0, Math.min(255, val));
+            });
+        }
+
+        function render() {
+            canvas.width = 256; canvas.height = 256;
+            const imgData = ctx.createImageData(256, 256);
+            for (let y = 0; y < 256; y++) {
+                for (let x = 0; x < 256; x++) {
+                    const i = (y * 256 + x) * 4;
+                    ['r', 'g', 'b'].forEach((ch, cIdx) => {
+                        const s = +getVal(ch + 'S'), e = +getVal(ch + 'E'), dir = getVal(ch + 'Dir');
+                        let ratio = (dir === 'h') ? x/255 : (dir === 'v' ? y/255 : (x/255 + y/255)/2);
+                        imgData.data[i + cIdx] = s + (e - s) * ratio;
+                    });
+                    imgData.data[i + 3] = 255;
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+            requestAnimationFrame(render);
+        }
+        render();
+    </script>
+</body>
+</html>
