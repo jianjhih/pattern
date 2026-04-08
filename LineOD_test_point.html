@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-TW">
+    <head>
+        <meta charset="UTF-8" />
+        <title>RGB 座標與同心圓漸層</title>
+        <style>
+            body,
+            html {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                font-family: "Segoe UI", "Consolas", "微軟正黑體", sans-serif;
+            }
+            #bgCanvas {
+                width: 100vw;
+                height: 100vh;
+                display: block;
+                cursor: crosshair;
+            }
+
+            /* 介面框布局優化 */
+            #panel {
+                position: absolute;
+                min-width: 420px; /* 增加寬度以容納 (x,y) 輸入 */
+                background: rgba(255, 255, 255, 0.95);
+                padding: 15px 20px;
+                border-radius: 12px;
+                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+                z-index: 100;
+                border: 1px solid #ccc;
+                user-select: none;
+                transition:
+                    transform 0.3s ease,
+                    opacity 0.3s ease,
+                    top 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            }
+
+            .pos-top {
+                top: 20px;
+                left: 20px;
+            }
+            .pos-bottom {
+                top: calc(100vh - 300px);
+                left: 20px;
+            }
+            .hidden {
+                transform: translateX(-120%);
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            .row {
+                display: flex;
+                align-items: center;
+                margin-bottom: 10px;
+                gap: 8px;
+                white-space: nowrap;
+            }
+            .row label {
+                width: 20px;
+                font-weight: bold;
+                font-size: 16px;
+            }
+            .row input.val-in {
+                width: 45px;
+                padding: 4px;
+                border: 1px solid #bbb;
+                border-radius: 4px;
+                text-align: center;
+            }
+            .row input.coord-in {
+                width: 40px;
+                padding: 4px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background: #f9f9f9;
+                font-size: 12px;
+            }
+
+            select {
+                padding: 4px;
+                border-radius: 4px;
+                border: 1px solid #bbb;
+                background: white;
+                font-size: 13px;
+            }
+
+            .monitor-section {
+                margin-top: 12px;
+                padding-top: 12px;
+                border-top: 1px solid #ddd;
+                font-size: 14px;
+            }
+            .display-line {
+                display: flex;
+                gap: 15px;
+                margin-bottom: 6px;
+            }
+            .val-group {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                font-weight: bold;
+            }
+            .val-box {
+                background: #f0f0f0;
+                padding: 2px 8px;
+                border-radius: 4px;
+                border: 1px solid #ccc;
+                min-width: 35px;
+                text-align: center;
+                font-family: "Consolas", monospace;
+            }
+
+            .hint {
+                font-size: 11px;
+                color: #666;
+                margin-top: 8px;
+                background: #eee;
+                padding: 4px;
+                border-radius: 4px;
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="bgCanvas"></canvas>
+
+        <div id="panel" class="pos-top">
+            <div class="row">
+                <label style="color: #d32f2f">R</label>
+                <input
+                    type="number"
+                    id="rS"
+                    class="val-in"
+                    value="0"
+                    min="0"
+                    max="255"
+                />
+                <input
+                    type="number"
+                    id="rE"
+                    class="val-in"
+                    value="255"
+                    min="0"
+                    max="255"
+                />
+                <select id="rDir">
+                    <option value="h">水平</option>
+                    <option value="v">垂直</option>
+                    <option value="d">左上-右下</option>
+                    <option value="c">同心圓</option>
+                </select>
+                <span>(</span
+                ><input type="number" id="rX" class="coord-in" value="0" /><span
+                    >,</span
+                >
+                <input type="number" id="rY" class="coord-in" value="0" /><span
+                    >)</span
+                >
+            </div>
+            <div class="row">
+                <label style="color: #388e3c">G</label>
+                <input
+                    type="number"
+                    id="gS"
+                    class="val-in"
+                    value="0"
+                    min="0"
+                    max="255"
+                />
+                <input
+                    type="number"
+                    id="gE"
+                    class="val-in"
+                    value="255"
+                    min="0"
+                    max="255"
+                />
+                <select id="gDir">
+                    <option value="h">水平</option>
+                    <option value="v">垂直</option>
+                    <option value="d">左上-右下</option>
+                    <option value="c">同心圓</option>
+                </select>
+                <span>(</span
+                ><input type="number" id="gX" class="coord-in" value="0" /><span
+                    >,</span
+                >
+                <input type="number" id="gY" class="coord-in" value="0" /><span
+                    >)</span
+                >
+            </div>
+            <div class="row">
+                <label style="color: #1976d2">B</label>
+                <input
+                    type="number"
+                    id="bS"
+                    class="val-in"
+                    value="0"
+                    min="0"
+                    max="255"
+                />
+                <input
+                    type="number"
+                    id="bE"
+                    class="val-in"
+                    value="255"
+                    min="0"
+                    max="255"
+                />
+                <select id="bDir">
+                    <option value="h">水平</option>
+                    <option value="v">垂直</option>
+                    <option value="d">左上-右下</option>
+                    <option value="c">同心圓</option>
+                </select>
+                <span>(</span
+                ><input type="number" id="bX" class="coord-in" value="0" /><span
+                    >,</span
+                >
+                <input type="number" id="bY" class="coord-in" value="0" /><span
+                    >)</span
+                >
+            </div>
+
+            <div class="monitor-section">
+                <div class="display-line">
+                    <div class="val-group">
+                        X <span id="mX" class="val-box">0</span>
+                    </div>
+                    <div class="val-group">
+                        Y <span id="mY" class="val-box">0</span>
+                    </div>
+                </div>
+                <div class="display-line">
+                    <div class="val-group">
+                        R <span id="mR" class="val-box">0</span>
+                    </div>
+                    <div class="val-group">
+                        G <span id="mG" class="val-box">0</span>
+                    </div>
+                    <div class="val-group">
+                        B <span id="mB" class="val-box">0</span>
+                    </div>
+                </div>
+            </div>
+            <div class="hint">左鍵點擊:隱藏 | 按住左鍵靠近:換位</div>
+        </div>
+
+        <script>
+            const canvas = document.getElementById("bgCanvas");
+            const ctx = canvas.getContext("2d", { alpha: false });
+            const panel = document.getElementById("panel");
+
+            let isVisible = true,
+                isDragging = false,
+                posMode = "top";
+
+            const getEl = (id) => document.getElementById(id);
+
+            // 漸層計算核心
+            function calcValue(x, y, w, h, ch) {
+                const s = +getEl(ch + "S").value,
+                    e = +getEl(ch + "E").value,
+                    dir = getEl(ch + "Dir").value;
+                let ratio = 0;
+
+                if (dir === "h") ratio = x / w;
+                else if (dir === "v") ratio = y / h;
+                else if (dir === "d") ratio = (x / w + y / h) / 2;
+                else if (dir === "c") {
+                    const cx = +getEl(ch + "X").value,
+                        cy = +getEl(ch + "Y").value;
+                    // 計算點到中心的距離
+                    const dist = Math.sqrt(
+                        Math.pow(x - cx, 2) + Math.pow(y - cy, 2),
+                    );
+                    // 以畫面最大對角線的一半作為 100% 漸層參考 (可調整)
+                    const maxDist = Math.sqrt(w * w + h * h) * 0.4;
+                    ratio = Math.min(1, dist / maxDist);
+                }
+                return Math.floor(s + (e - s) * ratio);
+            }
+
+            window.addEventListener("mousedown", (e) => {
+                if (panel.contains(e.target)) return;
+                isDragging = true;
+                isVisible = !isVisible;
+                panel.classList.toggle("hidden", !isVisible);
+            });
+
+            window.addEventListener("mouseup", () => (isDragging = false));
+
+            window.addEventListener("mousemove", (e) => {
+                const w = window.innerWidth,
+                    h = window.innerHeight;
+                const mx = e.clientX,
+                    my = e.clientY;
+
+                // 同步監控數據
+                getEl("mX").innerText = mx;
+                getEl("mY").innerText = my;
+                ["r", "g", "b"].forEach((ch) => {
+                    const val = calcValue(mx, my, w, h, ch);
+                    getEl("m" + ch.toUpperCase()).innerText = Math.max(
+                        0,
+                        Math.min(255, val),
+                    );
+                });
+
+                // 避讓邏輯
+                if (isVisible && isDragging) {
+                    const r = panel.getBoundingClientRect();
+                    if (
+                        mx > r.left - 30 &&
+                        mx < r.right + 30 &&
+                        my > r.top - 30 &&
+                        my < r.bottom + 30
+                    ) {
+                        posMode = posMode === "top" ? "bottom" : "top";
+                        panel.className = "pos-" + posMode;
+                    }
+                }
+            });
+
+            function render() {
+                // 為了徑向漸層的細膩度，稍微提升渲染解析度至 512
+                const res = 512;
+                canvas.width = res;
+                canvas.height = res;
+                const imgData = ctx.createImageData(res, res);
+                const w = window.innerWidth,
+                    h = window.innerHeight;
+
+                for (let y = 0; y < res; y++) {
+                    for (let x = 0; x < res; x++) {
+                        const i = (y * res + x) * 4;
+                        // 將渲染座標映射回螢幕座標以保持比例
+                        const screenX = (x / res) * w;
+                        const screenY = (y / res) * h;
+
+                        ["r", "g", "b"].forEach((ch, cIdx) => {
+                            imgData.data[i + cIdx] = calcValue(
+                                screenX,
+                                screenY,
+                                w,
+                                h,
+                                ch,
+                            );
+                        });
+                        imgData.data[i + 3] = 255;
+                    }
+                }
+                ctx.putImageData(imgData, 0, 0);
+                requestAnimationFrame(render);
+            }
+            render();
+        </script>
+    </body>
+</html>
