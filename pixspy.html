@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>Pix Spy Pro - HUD Precision Instrument</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        body { background-color: #050505; color: #c0c0c0; font-family: 'Consolas', monospace; overflow: hidden; }
+        canvas { image-rendering: pixelated; cursor: none; background-color: #000; }
+        .lcd-bg { 
+            background-color: #080808;
+            background-image: radial-gradient(#1a1a1a 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+    <div id="app" class="flex flex-col h-full">
+        <header class="h-10 bg-[#121212] border-b border-white/5 px-4 flex items-center justify-between font-bold z-50">
+            <div class="flex items-center gap-4">
+                <h1 class="text-blue-600 tracking-tighter text-sm italic font-black">PIXSPY // HUD_SYNC_MODE</h1>
+                <input type="file" @change="handleFileUpload" class="hidden" id="f" accept="image/*">
+                <label for="f" class="text-[9px] border border-white/20 px-3 py-1 cursor-pointer hover:bg-white/10 text-gray-400 tracking-widest uppercase">Load Source</label>
+            </div>
+            <div class="flex items-center gap-6 text-[10px] text-gray-500 uppercase">
+                <div v-if="imgLoaded">Img: {{imgInfo.w}}x{{imgInfo.h}}</div>
+                <div>Scale: <span class="text-blue-500">{{ Math.round(scale * 100) }}%</span></div>
+            </div>
+        </header>
+
+        <main class="flex-1 relative overflow-hidden lcd-bg">
+            <div ref="container" class="w-full h-full relative"
+                 @wheel.prevent="handleWheel"
+                 @mousedown="handleMouseDown"
+                 @mousemove="handleMouseMove"
+                 @mouseup="handleMouseUp"
+                 @mouseleave="handleMouseLeave"
+                 @contextmenu.prevent>
+                <canvas ref="canvas"></canvas>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const canvas = ref(null);
+                const container = ref(null);
+                const imgLoaded = ref(false);
+                const isInside = ref(false);
+                
+                const scale = ref(1);
+                const viewPos = reactive({ x: 0, y: 0 }); 
+                const imgInfo = reactive({ w: 0, h: 0 });
+                const hoverPos = reactive({ x: 0, y: 0 });
+                const hoverColor = reactive({ r: 0, g: 0, b: 0 });
+                const isDragging = ref(false);
+                let lastMousePos = { x: 0, y: 0 };
+                let imageObj = new Image();
+
+                // 核心修正：統一取色邏輯
+                const updatePixelData = () => {
+                    const ix = Math.floor(hoverPos.x);
+                    const iy = Math.floor(hoverPos.y);
+                    
+                    if (ix >= 0 && ix < imgInfo.w && iy >= 0 && iy < imgInfo.h) {
+                        isInside.value = true;
+                        // 利用 OffscreenCanvas 擷取當前像素點
+                        const offCanvas = new OffscreenCanvas(1, 1);
+                        const offCtx = offCanvas.getContext('2d');
+                        offCtx.drawImage(imageObj, -ix, -iy);
+                        const p = offCtx.getImageData(0, 0, 1, 1).data;
+                        hoverColor.r = p[0]; 
+                        hoverColor.g = p[1]; 
+                        hoverColor.b = p[2];
+                    } else {
+                        isInside.value = false;
+                    }
+                };
+
+                const handleFileUpload = (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        imageObj.onload = () => {
+                            imgInfo.w = imageObj.width;
+                            imgInfo.h = imageObj.height;
+                            imgLoaded.value = true;
+                            scale.value = Math.min(container.value.clientWidth / imgInfo.w, container.value.clientHeight / imgInfo.h, 1);
+                            viewPos.x = imgInfo.w / 2;
+                            viewPos.y = imgInfo.h / 2;
+                            resizeCanvas();
+                            render();
+                        };
+                        imageObj.src = ev.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                };
+
+                const resizeCanvas = () => {
+                    if (!container.value) return;
+                    canvas.value.width = container.value.clientWidth;
+                    canvas.value.height = container.value.clientHeight;
+                };
+
+                const handleWheel = (e) => {
+                    if (!imgLoaded.value) return;
+                    const zoomFactor = e.deltaY > 0 ? 0.8 : 1.25;
+                    const oldScale = scale.value;
+                    scale.value = Math.max(0.01, Math.min(1000, oldScale * zoomFactor));
+
+                    const mouseX = e.clientX - container.value.offsetLeft;
+                    const mouseY = e.clientY - container.value.offsetTop;
+                    const dx = (mouseX - canvas.value.width / 2) / oldScale;
+                    const dy = (mouseY - canvas.value.height / 2) / oldScale;
+
+                    viewPos.x += dx - (mouseX - canvas.value.width / 2) / scale.value;
+                    viewPos.y += dy - (mouseY - canvas.value.height / 2) / scale.value;
+                    render();
+                };
+
+                const handleMouseDown = (e) => {
+                    if (!imgLoaded.value || e.button !== 0) return;
+                    isDragging.value = true;
+                    lastMousePos = { x: e.clientX, y: e.clientY };
+                };
+
+                const handleMouseUp = () => { isDragging.value = false; };
+                const handleMouseLeave = () => { isInside.value = false; render(); };
+
+                const handleMouseMove = (e) => {
+                    if (!imgLoaded.value) return;
+                    const mouseX = e.clientX - container.value.offsetLeft;
+                    const mouseY = e.clientY - container.value.offsetTop;
+
+                    if (isDragging.value) {
+                        viewPos.x -= (e.clientX - lastMousePos.x) / scale.value;
+                        viewPos.y -= (e.clientY - lastMousePos.y) / scale.value;
+                        lastMousePos = { x: e.clientX, y: e.clientY };
+                    }
+
+                    hoverPos.x = viewPos.x + (mouseX - canvas.value.width / 2) / scale.value;
+                    hoverPos.y = viewPos.y + (mouseY - canvas.value.height / 2) / scale.value;
+
+                    updatePixelData();
+                    render();
+                };
+
+                const render = () => {
+                    if (!imgLoaded.value) return;
+                    const ctx = canvas.value.getContext('2d');
+                    const cw = canvas.value.width;
+                    const ch = canvas.value.height;
+                    const s = scale.value;
+
+                    ctx.clearRect(0, 0, cw, ch);
+                    const drawX = cw / 2 - viewPos.x * s;
+                    const drawY = ch / 2 - viewPos.y * s;
+                    ctx.drawImage(imageObj, drawX, drawY, imgInfo.w * s, imgInfo.h * s);
+
+                    if (isInside.value) {
+                        ctx.save();
+                        ctx.globalCompositeOperation = 'difference';
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.fillStyle = '#ffffff';
+                        ctx.lineWidth = 1;
+
+                        const pxX = Math.floor(hoverPos.x);
+                        const pxY = Math.floor(hoverPos.y);
+                        const screenX = cw / 2 + (pxX - viewPos.x) * s;
+                        const screenY = ch / 2 + (pxY - viewPos.y) * s;
+
+                        // 繪製透空長方框十字 (0.5px 修正以獲得最銳利線條)
+                        ctx.strokeRect(screenX + 0.5, 0, s - 1, ch); 
+                        ctx.strokeRect(0, screenY + 0.5, cw, s - 1); 
+
+                        // HUD 數據顯示
+                        ctx.font = 'bold 12px Consolas, monospace';
+                        const pad = 10;
+                        ctx.textAlign = 'left';
+                        
+                        // 右上角: 座標
+                        ctx.fillText(`X:${pxX} Y:${pxY}`, screenX + s + pad, screenY - pad);
+                        // 右下角: RGB 分項
+                        ctx.fillText(`R:${hoverColor.r} G:${hoverColor.g} B:${hoverColor.b}`, screenX + s + pad, screenY + s + pad + 5);
+                        
+                        ctx.restore();
+                    }
+                };
+
+                onMounted(() => {
+                    resizeCanvas();
+                    window.addEventListener('resize', () => { resizeCanvas(); render(); });
+                    
+                    window.addEventListener('keydown', (e) => {
+                        if (!imgLoaded.value || !isInside.value) return;
+                        
+                        let dx = 0, dy = 0;
+                        const step = e.shiftKey ? 10 : 1;
+                        
+                        if (e.key === 'ArrowUp') dy = -step;
+                        else if (e.key === 'ArrowDown') dy = step;
+                        else if (e.key === 'ArrowLeft') dx = -step;
+                        else if (e.key === 'ArrowRight') dx = step;
+                        else return;
+
+                        e.preventDefault();
+                        
+                        // 1. 同步更新十字線位置與畫面平移
+                        const nextX = hoverPos.x + dx;
+                        const nextY = hoverPos.y + dy;
+
+                        if (nextX >= 0 && nextX < imgInfo.w) { 
+                            hoverPos.x = nextX; 
+                            viewPos.x += dx; 
+                        }
+                        if (nextY >= 0 && nextY < imgInfo.h) { 
+                            hoverPos.y = nextY; 
+                            viewPos.y += dy; 
+                        }
+
+                        // 2. 關鍵：鍵盤移動後強制觸發數據更新
+                        updatePixelData();
+                        render();
+                    });
+                });
+
+                return {
+                    canvas, container, imgLoaded, scale, hoverPos, hoverColor, imgInfo,
+                    handleFileUpload, handleWheel, handleMouseMove, handleMouseDown, handleMouseUp, handleMouseLeave
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
